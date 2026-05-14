@@ -1,0 +1,48 @@
+name: NSE Market Scan
+
+on:
+  schedule:
+    # Every 15 min, Mon-Fri, 3:30am–10:15am UTC (= 9:00am–3:45pm IST)
+    - cron: '*/15 3-10 * * 1-5'
+  workflow_dispatch:   # lets you trigger manually too
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scan
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+        run: |
+          mkdir -p data models docs
+          python backend/engine.py
+
+      - name: Commit signals to repo
+        run: |
+          git config user.name "NSE Bot"
+          git config user.email "nse-bot@users.noreply.github.com"
+          git add docs/signals.json data/latest.json
+          git diff --staged --quiet || git commit -m "scan: $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

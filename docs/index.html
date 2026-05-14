@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NSE Confidence Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg0: #0a0d0f;
+  --bg1: #0f1317;
+  --bg2: #141a1f;
+  --bg3: #1c242c;
+  --border: rgba(255,255,255,0.07);
+  --border2: rgba(255,255,255,0.12);
+  --text-primary: #e2e8f0;
+  --text-secondary: #7a909f;
+  --text-dim: #445566;
+  --green: #00d084;
+  --green-dim: #00543450;
+  --red: #ff4d6d;
+  --red-dim: #4d001a50;
+  --amber: #f5a623;
+  --amber-dim: #4d320050;
+  --blue: #3b9eff;
+  --cyan: #00c8d4;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'IBM Plex Sans', sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg0);
+  color: var(--text-primary);
+  font-family: var(--mono);
+  font-size: 13px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ─── Scanline overlay ───────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.06) 2px, rgba(0,0,0,0.06) 4px);
+  pointer-events: none; z-index: 9999;
+}
+
+/* ─── Header ─────────────────────────────────────────── */
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg1);
+  position: sticky; top: 0; z-index: 100;
+}
+.logo {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; font-weight: 600; letter-spacing: 0.08em;
+  color: var(--cyan);
+}
+.logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(0.85)} }
+
+.header-meta {
+  display: flex; align-items: center; gap: 20px;
+  color: var(--text-secondary); font-size: 11px;
+}
+.status-badge {
+  padding: 3px 10px; border-radius: 3px; font-weight: 500; font-size: 11px;
+  background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,208,132,0.2);
+}
+.status-badge.scanning { background: var(--amber-dim); color: var(--amber); border-color: rgba(245,166,35,0.3); }
+
+.scan-btn {
+  background: var(--bg3); border: 1px solid var(--border2); color: var(--text-primary);
+  padding: 5px 14px; border-radius: 3px; cursor: pointer; font-family: var(--mono); font-size: 12px;
+  transition: all 0.15s;
+}
+.scan-btn:hover { background: var(--bg2); border-color: var(--cyan); color: var(--cyan); }
+
+/* ─── Stats bar ──────────────────────────────────────── */
+.stats-bar {
+  display: flex; gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.stat {
+  flex: 1; padding: 10px 20px;
+  background: var(--bg1);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.stat-val { font-size: 20px; font-weight: 600; }
+.stat-lbl { font-size: 11px; color: var(--text-secondary); }
+.stat.buy .stat-val  { color: var(--green); }
+.stat.sell .stat-val { color: var(--red); }
+.stat.hold .stat-val { color: var(--amber); }
+.stat.total .stat-val { color: var(--cyan); }
+
+/* ─── Layout ─────────────────────────────────────────── */
+.layout { display: flex; height: calc(100vh - 108px); }
+.sidebar {
+  width: 260px; flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  overflow-y: auto; background: var(--bg1);
+  display: flex; flex-direction: column;
+}
+.main { flex: 1; overflow-y: auto; padding: 16px 20px; }
+
+/* ─── Filter panel ───────────────────────────────────── */
+.filter-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.filter-title { font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; }
+.filter-group { display: flex; flex-direction: column; gap: 4px; }
+.filter-btn {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px; border-radius: 3px; cursor: pointer;
+  border: 1px solid transparent; font-family: var(--mono); font-size: 12px;
+  color: var(--text-secondary); background: transparent; transition: all 0.1s;
+}
+.filter-btn:hover { background: var(--bg2); color: var(--text-primary); }
+.filter-btn.active { background: var(--bg2); border-color: var(--border2); color: var(--text-primary); }
+.filter-btn.buy.active  { border-color: rgba(0,208,132,.35); color: var(--green); }
+.filter-btn.sell.active { border-color: rgba(255,77,109,.35); color: var(--red); }
+.filter-btn.hold.active { border-color: rgba(245,166,35,.35); color: var(--amber); }
+.f-count {
+  font-size: 11px; padding: 1px 6px; border-radius: 2px;
+  background: var(--bg3);
+}
+
+/* ─── Signal Cards ───────────────────────────────────── */
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 10px;
+}
+
+.card {
+  background: var(--bg1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  position: relative; overflow: hidden;
+}
+.card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px;
+}
+.card.buy::before   { background: var(--green); }
+.card.sell::before  { background: var(--red); }
+.card.hold::before  { background: var(--amber); }
+.card:hover { background: var(--bg2); border-color: var(--border2); }
+
+.card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; }
+.card-symbol { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.card-name   { font-size: 11px; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+.card-price  { text-align: right; }
+.card-price-val { font-size: 15px; font-weight: 600; }
+.card-ret  { font-size: 11px; margin-top: 2px; }
+.card-ret.pos { color: var(--green); }
+.card-ret.neg { color: var(--red); }
+
+/* ─── Confidence bar ────────────────────── */
+.conf-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.conf-bar-bg { flex: 1; height: 5px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
+.conf-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s ease; }
+.card.buy  .conf-bar-fill { background: var(--green); }
+.card.sell .conf-bar-fill { background: var(--red); }
+.card.hold .conf-bar-fill { background: var(--amber); }
+.conf-val { font-size: 12px; font-weight: 600; min-width: 38px; text-align: right; }
+.card.buy  .conf-val { color: var(--green); }
+.card.sell .conf-val { color: var(--red); }
+.card.hold .conf-val { color: var(--amber); }
+
+/* ─── Score mini-bars ─────────────────── */
+.scores-row { display: flex; gap: 6px; margin-bottom: 10px; }
+.score-mini { flex: 1; }
+.score-mini-label { font-size: 9px; color: var(--text-dim); letter-spacing: 0.06em; text-transform: uppercase; }
+.score-mini-bar { height: 3px; background: var(--bg3); border-radius: 1px; margin-top: 3px; overflow: hidden; }
+.score-mini-fill { height: 100%; border-radius: 1px; background: var(--blue); transition: width 0.5s; }
+
+/* ─── Trade levels ─────────────────────── */
+.trade-grid {
+  display: grid; grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px; font-size: 11px;
+}
+.trade-cell { padding: 5px 6px; background: var(--bg0); border-radius: 2px; }
+.trade-cell-label { color: var(--text-dim); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+.trade-cell-val { font-weight: 500; margin-top: 2px; }
+.trade-cell.sl  .trade-cell-val { color: var(--red); }
+.trade-cell.tp1 .trade-cell-val { color: var(--green); }
+.trade-cell.tp2 .trade-cell-val { color: var(--cyan); }
+
+/* ─── Action badge ─────────────────────── */
+.action-badge {
+  display: inline-block; padding: 3px 10px; border-radius: 2px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
+  border: 1px solid;
+}
+.action-badge.BUY  { background: var(--green-dim); color: var(--green);  border-color: rgba(0,208,132,.3); }
+.action-badge.SELL { background: var(--red-dim);   color: var(--red);    border-color: rgba(255,77,109,.3); }
+.action-badge.HOLD { background: var(--amber-dim); color: var(--amber);  border-color: rgba(245,166,35,.3); }
+
+/* ─── Detail panel ─────────────────────── */
+.detail-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200;
+  display: none; align-items: center; justify-content: center;
+}
+.detail-overlay.open { display: flex; }
+.detail-panel {
+  background: var(--bg1); border: 1px solid var(--border2);
+  border-radius: 6px; width: 540px; max-height: 85vh; overflow-y: auto;
+  padding: 24px;
+}
+.detail-close {
+  float: right; background: none; border: none; color: var(--text-secondary);
+  font-size: 18px; cursor: pointer; line-height: 1;
+}
+.detail-close:hover { color: var(--text-primary); }
+.detail-title { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+.detail-sub { color: var(--text-secondary); font-size: 12px; margin-bottom: 20px; }
+.detail-section { margin-bottom: 18px; }
+.detail-section-title { font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.detail-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.detail-row-label { color: var(--text-secondary); }
+.detail-score-bar { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.detail-score-label { width: 90px; font-size: 12px; color: var(--text-secondary); }
+.detail-score-bg { flex: 1; height: 8px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+.detail-score-fill { height: 100%; border-radius: 3px; background: var(--blue); }
+.detail-score-val { width: 40px; text-align: right; font-size: 12px; font-weight: 500; }
+
+/* ─── Chart container ─────────────────── */
+#mini-chart { margin-top: 12px; }
+
+/* ─── Loader ────────────────────────────── */
+.loader {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 300px; gap: 16px; color: var(--text-secondary);
+}
+.loader-bar {
+  width: 200px; height: 2px; background: var(--bg3); overflow: hidden; border-radius: 1px;
+}
+.loader-fill {
+  height: 100%; background: var(--cyan);
+  animation: load 1.4s ease-in-out infinite;
+}
+@keyframes load { 0%{transform:translateX(-100%)} 100%{transform:translateX(200%)} }
+
+/* ─── Timestamp ─────────────────────────── */
+#last-updated { color: var(--text-dim); font-size: 11px; }
+
+/* ─── Scrollbar ─────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg0); }
+::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    NSE CONFIDENCE ENGINE
+  </div>
+  <div class="header-meta">
+    <span id="last-updated">—</span>
+    <span id="status-badge" class="status-badge">LIVE</span>
+    <button class="scan-btn" onclick="loadFromFile()">⟳ REFRESH</button>
+  </div>
+</header>
+
+<div class="stats-bar">
+  <div class="stat total"> <div class="stat-val" id="st-total">—</div><div class="stat-lbl">SIGNALS</div></div>
+  <div class="stat buy">   <div class="stat-val" id="st-buy">—</div>  <div class="stat-lbl">BUY</div></div>
+  <div class="stat hold">  <div class="stat-val" id="st-hold">—</div> <div class="stat-lbl">HOLD</div></div>
+  <div class="stat sell">  <div class="stat-val" id="st-sell">—</div> <div class="stat-lbl">SELL</div></div>
+</div>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="filter-section">
+      <div class="filter-title">Filter</div>
+      <div class="filter-group">
+        <button class="filter-btn active" data-filter="ALL" onclick="setFilter('ALL',this)">
+          All signals <span class="f-count" id="fc-all">—</span>
+        </button>
+        <button class="filter-btn buy" data-filter="BUY" onclick="setFilter('BUY',this)">
+          🔼 Buy signals <span class="f-count" id="fc-buy">—</span>
+        </button>
+        <button class="filter-btn hold" data-filter="HOLD" onclick="setFilter('HOLD',this)">
+          ⏸ Hold signals <span class="f-count" id="fc-hold">—</span>
+        </button>
+        <button class="filter-btn sell" data-filter="SELL" onclick="setFilter('SELL',this)">
+          🔽 Sell signals <span class="f-count" id="fc-sell">—</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="filter-section">
+      <div class="filter-title">Min Confidence</div>
+      <input type="range" id="conf-slider" min="0" max="90" value="0" step="5"
+        style="width:100%; accent-color: var(--cyan); margin-top:4px"
+        oninput="document.getElementById('conf-val').textContent=this.value+'%'; renderCards()">
+      <div style="color:var(--text-secondary); font-size:11px; margin-top:6px">
+        Min: <span id="conf-val">0%</span>
+      </div>
+    </div>
+
+    <div class="filter-section">
+      <div class="filter-title">Sort by</div>
+      <select id="sort-by" onchange="renderCards()"
+        style="width:100%; background:var(--bg2); color:var(--text-primary); border:1px solid var(--border2); padding:5px 8px; border-radius:3px; font-family:var(--mono); font-size:12px;">
+        <option value="composite">Composite score</option>
+        <option value="ret_1d">1D return</option>
+        <option value="ret_5d">5D return</option>
+        <option value="rsi">RSI</option>
+      </select>
+    </div>
+
+    <div class="filter-section" style="flex:1">
+      <div class="filter-title">Legend</div>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:11px;color:var(--text-secondary)">
+        <div>Confidence bar = composite technical score (0–100)</div>
+        <div style="color:var(--green)">≥65 → BUY signal</div>
+        <div style="color:var(--amber)">38–65 → HOLD</div>
+        <div style="color:var(--red)">≤38 → SELL / avoid</div>
+        <div style="margin-top:8px">SL = stop loss based on 1.5× ATR</div>
+        <div>TP1/TP2 = 2.5× / 4.5× ATR targets</div>
+        <div>RR = risk-reward ratio</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main" id="main-content">
+    <div class="loader" id="loader">
+      <div>Connecting to engine…</div>
+      <div class="loader-bar"><div class="loader-fill"></div></div>
+    </div>
+    <div class="cards-grid" id="cards-grid" style="display:none"></div>
+  </main>
+</div>
+
+<!-- Detail overlay -->
+<div class="detail-overlay" id="detail-overlay" onclick="closeDetail(event)">
+  <div class="detail-panel" id="detail-panel">
+    <button class="detail-close" onclick="closeDetail()">✕</button>
+    <div id="detail-content"></div>
+  </div>
+</div>
+
+<script>
+let ALL_SIGNALS = [];
+let FILTER = 'ALL';
+
+// GitHub Pages mode — read from static JSON file
+async function loadFromFile() {
+  try {
+    const r = await fetch('signals.json?t=' + Date.now());
+    if (!r.ok) throw new Error('not found');
+    const data = await r.json();
+    ALL_SIGNALS = data.signals || [];
+    document.getElementById('last-updated').textContent =
+      'Updated: ' + new Date(data.updated).toLocaleTimeString('en-IN', 
+        {hour:'2-digit', minute:'2-digit'});
+    renderStats();
+    renderCards();
+    document.getElementById('loader').style.display = 'none';
+    document.getElementById('cards-grid').style.display = 'grid';
+  } catch(e) {
+    document.getElementById('loader').innerHTML =
+      '<div>Waiting for first scan to complete…<br><small style="color:var(--text-dim)">Check back in 2 minutes</small></div>';
+  }
+}
+
+// Also remove the scan button functionality since there's no live server
+document.addEventListener('DOMContentLoaded', () => {
+  loadFromFile();
+  setInterval(loadFromFile, 60000); // refresh every minute
+});
+
+async function pollFallback() {
+  try {
+    const r = await fetch(API + '/signals');
+    if (!r.ok) return;
+    const data = await r.json();
+    ALL_SIGNALS = data.signals || [];
+    renderStats(); renderCards();
+    document.getElementById('loader').style.display = 'none';
+    document.getElementById('cards-grid').style.display = 'grid';
+  } catch(e) {}
+  setTimeout(pollFallback, 30000);
+}
+
+async function triggerScan() {
+  const badge = document.getElementById('status-badge');
+  badge.className = 'status-badge scanning';
+  badge.textContent = 'SCANNING…';
+  try {
+    await fetch(API + '/scan', { method: 'POST' });
+  } catch(e) {}
+  setTimeout(() => { badge.className = 'status-badge'; badge.textContent = 'LIVE'; }, 3000);
+}
+
+// ─── Render ──────────────────────────────────────────────────────────────────
+function renderStats() {
+  const buys  = ALL_SIGNALS.filter(s => s.signal.action === 'BUY').length;
+  const sells = ALL_SIGNALS.filter(s => s.signal.action === 'SELL').length;
+  const holds = ALL_SIGNALS.filter(s => s.signal.action === 'HOLD').length;
+  document.getElementById('st-total').textContent = ALL_SIGNALS.length;
+  document.getElementById('st-buy').textContent   = buys;
+  document.getElementById('st-hold').textContent  = holds;
+  document.getElementById('st-sell').textContent  = sells;
+  document.getElementById('fc-all').textContent   = ALL_SIGNALS.length;
+  document.getElementById('fc-buy').textContent   = buys;
+  document.getElementById('fc-hold').textContent  = holds;
+  document.getElementById('fc-sell').textContent  = sells;
+}
+
+function getFiltered() {
+  const minConf = parseInt(document.getElementById('conf-slider').value);
+  const sortBy = document.getElementById('sort-by').value;
+  let sigs = ALL_SIGNALS;
+  if (FILTER !== 'ALL') sigs = sigs.filter(s => s.signal.action === FILTER);
+  sigs = sigs.filter(s => s.scores.composite >= minConf);
+  sigs = [...sigs].sort((a, b) => {
+    if (sortBy === 'composite') return b.scores.composite - a.scores.composite;
+    if (sortBy === 'ret_1d')    return b.ret_1d - a.ret_1d;
+    if (sortBy === 'ret_5d')    return b.ret_5d - a.ret_5d;
+    if (sortBy === 'rsi')       return b.scores.momentum - a.scores.momentum;
+    return 0;
+  });
+  return sigs;
+}
+
+function renderCards() {
+  const sigs = getFiltered();
+  const grid = document.getElementById('cards-grid');
+  grid.innerHTML = sigs.map(s => cardHTML(s)).join('');
+}
+
+function fmt(n) { return '₹' + n.toLocaleString('en-IN', {minimumFractionDigits:2,maximumFractionDigits:2}); }
+function pct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%'; }
+
+function cardHTML(s) {
+  const sig = s.signal;
+  const action = sig.action.toLowerCase();
+  const sc = s.scores;
+  const retClass = s.ret_1d >= 0 ? 'pos' : 'neg';
+  const sym = s.symbol.replace('.NS','');
+  const dims = ['trend','momentum','volatility','volume'];
+  const miniScores = dims.map(d =>
+    `<div class="score-mini">
+       <div class="score-mini-label">${d.substring(0,4)}</div>
+       <div class="score-mini-bar"><div class="score-mini-fill" style="width:${sc[d] || 0}%"></div></div>
+     </div>`
+  ).join('');
+
+  return `<div class="card ${action}" onclick="openDetail('${s.symbol}')">
+    <div class="card-header">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="card-symbol">${sym}</div>
+          <span class="action-badge ${sig.action}">${sig.action}</span>
+        </div>
+        <div class="card-name">${s.name}</div>
+      </div>
+      <div class="card-price">
+        <div class="card-price-val">${fmt(s.price)}</div>
+        <div class="card-ret ${retClass}">${pct(s.ret_1d)} today</div>
+      </div>
+    </div>
+    <div class="conf-row">
+      <span style="font-size:11px;color:var(--text-secondary)">Confidence</span>
+      <div class="conf-bar-bg"><div class="conf-bar-fill" style="width:${sc.composite}%"></div></div>
+      <span class="conf-val">${sc.composite}%</span>
+    </div>
+    <div class="scores-row">${miniScores}</div>
+    <div class="trade-grid">
+      <div class="trade-cell sl">
+        <div class="trade-cell-label">Stop Loss</div>
+        <div class="trade-cell-val">${fmt(sig.stop_loss)}</div>
+      </div>
+      <div class="trade-cell tp1">
+        <div class="trade-cell-label">Target 1</div>
+        <div class="trade-cell-val">${fmt(sig.target_1)}</div>
+      </div>
+      <div class="trade-cell tp2">
+        <div class="trade-cell-label">Target 2</div>
+        <div class="trade-cell-val">${fmt(sig.target_2)}</div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--text-dim)">
+      <span>RR ${sig.risk_reward}:1</span>
+      <span>ATR ${sig.atr_pct}%</span>
+      <span>5D ${pct(s.ret_5d)}</span>
+    </div>
+  </div>`;
+}
+
+// ─── Detail panel ─────────────────────────────────────────────────────────────
+function openDetail(sym) {
+  const s = ALL_SIGNALS.find(x => x.symbol === sym);
+  if (!s) return;
+  const sig = s.signal;
+  const sc  = s.scores;
+  const action = sig.action;
+
+  const scoreRows = ['trend','momentum','volatility','volume'].map(d =>
+    `<div class="detail-score-bar">
+       <div class="detail-score-label">${d.charAt(0).toUpperCase()+d.slice(1)}</div>
+       <div class="detail-score-bg"><div class="detail-score-fill" style="width:${sc[d]}%"></div></div>
+       <div class="detail-score-val">${sc[d]}</div>
+     </div>`
+  ).join('');
+
+  document.getElementById('detail-content').innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <div class="detail-title">${s.symbol.replace('.NS','')}</div>
+      <span class="action-badge ${action}">${action}</span>
+    </div>
+    <div class="detail-sub">${s.name} &nbsp;·&nbsp; Updated ${new Date(s.timestamp).toLocaleTimeString('en-IN')}</div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">Price</div>
+      <div class="detail-row"><span class="detail-row-label">Current</span><span>${fmt(s.price)}</span></div>
+      <div class="detail-row"><span class="detail-row-label">1D change</span><span style="color:${s.ret_1d>=0?'var(--green)':'var(--red)'}">${pct(s.ret_1d)}</span></div>
+      <div class="detail-row"><span class="detail-row-label">5D change</span><span style="color:${s.ret_5d>=0?'var(--green)':'var(--red)'}">${pct(s.ret_5d)}</span></div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">Signal scores</div>
+      ${scoreRows}
+      <div class="detail-score-bar" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+        <div class="detail-score-label" style="font-weight:600">Composite</div>
+        <div class="detail-score-bg"><div class="detail-score-fill" style="width:${sc.composite}%;background:${action==='BUY'?'var(--green)':action==='SELL'?'var(--red)':'var(--amber)'}"></div></div>
+        <div class="detail-score-val" style="font-weight:600">${sc.composite}</div>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">Trade plan</div>
+      <div class="detail-row"><span class="detail-row-label">Entry (CMP)</span><span>${fmt(sig.entry)}</span></div>
+      <div class="detail-row"><span class="detail-row-label">Stop loss</span><span style="color:var(--red)">${fmt(sig.stop_loss)}</span></div>
+      <div class="detail-row"><span class="detail-row-label">Target 1</span><span style="color:var(--green)">${fmt(sig.target_1)}</span></div>
+      <div class="detail-row"><span class="detail-row-label">Target 2</span><span style="color:var(--cyan)">${fmt(sig.target_2)}</span></div>
+      <div class="detail-row"><span class="detail-row-label">Risk-Reward</span><span>${sig.risk_reward} : 1</span></div>
+      <div class="detail-row"><span class="detail-row-label">ATR %</span><span>${sig.atr_pct}%</span></div>
+      <div class="detail-row"><span class="detail-row-label">Confidence</span><span>${sig.confidence}% (${sig.label})</span></div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">Interpretation</div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.7">
+        ${interpretation(s)}
+      </div>
+    </div>
+  `;
+  document.getElementById('detail-overlay').classList.add('open');
+}
+
+function interpretation(s) {
+  const sig = s.signal;
+  const sc = s.scores;
+  let txt = '';
+  if (sig.action === 'BUY') {
+    txt = `Technical momentum is aligning positively. Trend score ${sc.trend} indicates price is above key moving averages`;
+    if (sc.momentum > 60) txt += ', and momentum is building';
+    txt += `. Entry near ₹${fmt(s.price).replace('₹','')} with a stop loss at ₹${fmt(sig.stop_loss).replace('₹','')} limits downside to ~${sig.atr_pct * 1.5}%. First target ₹${fmt(sig.target_1).replace('₹','')} gives a ${sig.risk_reward}:1 reward ratio. `;
+    txt += `Consider exiting 50% at TP1 and trailing the rest to TP2.`;
+  } else if (sig.action === 'SELL') {
+    txt = `Multiple technical signals are weakening. Composite score of ${sc.composite} suggests momentum is fading. `;
+    txt += `Avoid new longs. If already holding, consider a stop near ₹${fmt(sig.stop_loss).replace('₹','')}. Wait for a score above 50 before re-entry.`;
+  } else {
+    txt = `Mixed signals — trend (${sc.trend}) and momentum (${sc.momentum}) are not aligned enough for a clear entry. `;
+    txt += `Monitor and set price alerts near ₹${fmt(sig.target_1).replace('₹','')} for a potential breakout entry.`;
+  }
+  return txt;
+}
+
+function closeDetail(e) {
+  if (!e || e.target === document.getElementById('detail-overlay'))
+    document.getElementById('detail-overlay').classList.remove('open');
+}
+
+function setFilter(f, el) {
+  FILTER = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  renderCards();
+}
+
+// ─── Boot ────────────────────────────────────────────────────────────────────
+connect();
+// Fallback: if no SSE data in 8s, poll
+setTimeout(() => {
+  if (!ALL_SIGNALS.length) pollFallback();
+}, 8000);
+</script>
+</body>
+</html>

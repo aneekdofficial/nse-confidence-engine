@@ -1,0 +1,49 @@
+name: NSE Engine CI/CD
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Trigger a scan ping on weekdays during NSE trading hours (IST = UTC+5:30)
+    # 9:15 AM IST = 3:45 UTC,  3:30 PM IST = 10:00 UTC
+    - cron: '45 3 * * 1-5'
+    - cron: '00 10 * * 1-5'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Smoke test engine
+        run: |
+          cd $GITHUB_WORKSPACE
+          python -c "
+          from backend.engine import compute_features, rule_based_score, derive_signal
+          import pandas as pd, numpy as np
+          # Synthetic smoke test
+          n = 120
+          close = pd.Series(np.cumsum(np.random.randn(n)) + 500)
+          df = pd.DataFrame({'Close':close,'High':close*1.01,'Low':close*0.99,'Volume':pd.Series(np.random.randint(100000,2000000,n))})
+          feats = compute_features(df)
+          assert feats, 'Features empty'
+          scores = rule_based_score(feats)
+          assert 0 <= scores['composite'] <= 100
+          sig = derive_signal(scores, feats)
+          assert sig['action'] in ('BUY','HOLD','SELL')
+          print('All checks passed:', sig)
+          "
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Ping Render deploy hook
+        if: env.RENDER_DEPLOY_HOOK != ''
+        run: curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
