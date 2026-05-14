@@ -41,8 +41,9 @@ jobs:
           HF_USERNAME: ${{ secrets.HF_USERNAME }}
         run: |
           mkdir -p data models docs
-          python backend/engine.py
-
+          echo '{"updated":"'$(date -u +%Y-%m-%dT%H:%M:%S)'","signals":[]}' > docs/signals.json
+          python -m backend.engine
+          
       - name: Commit signals to repo
         run: |
           git config user.name "NSE Bot"
