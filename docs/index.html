@@ -591,11 +591,8 @@ function setFilter(f, el) {
 }
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
-connect();
-// Fallback: if no SSE data in 8s, poll
-setTimeout(() => {
-  if (!ALL_SIGNALS.length) pollFallback();
-}, 8000);
+loadFromFile();
+setInterval(loadFromFile, 60000);
 </script>
 </body>
 </html>
