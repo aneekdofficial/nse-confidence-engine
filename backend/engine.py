@@ -247,8 +247,11 @@ def save_results(results: list[dict], path="data/latest.json"):
 
 
 if __name__ == "__main__":
-    import os, json
+    import os, sys, json
     from pathlib import Path
+
+    # Make sure imports work regardless of working directory
+    sys.path.insert(0, str(Path(__file__).parent.parent))
 
     # Download ML model from Hugging Face if available
     hf_token    = os.environ.get("HF_TOKEN")
@@ -267,21 +270,30 @@ if __name__ == "__main__":
                         local_dir="models",
                     )
                     log.info(f"Downloaded {fname} from HuggingFace")
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning(f"Could not download {fname}: {e}")
         except Exception as e:
             log.warning(f"HF download skipped: {e}")
 
+    # Run the scan
     results = run_scan()
 
-    # Save to data/latest.json as before
+    if not results:
+        log.error("Scan returned no results — check yfinance connectivity")
+        # Write empty but valid JSON so dashboard doesn't break
+        for path in ["data/latest.json", "docs/signals.json"]:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w") as f:
+                json.dump({"updated": datetime.now().isoformat(), "signals": []}, f)
+        sys.exit(1)
+
+    # Save results
     save_results(results)
 
-    # Also save to docs/signals.json for GitHub Pages
-    Path("docs").mkdir(exist_ok=True)
+    Path("docs").mkdir(parents=True, exist_ok=True)
     with open("docs/signals.json", "w") as f:
         json.dump({
             "updated": datetime.now().isoformat(),
             "signals": results
         }, f, indent=2)
-    log.info("Saved → docs/signals.json")
+    log.info(f"Saved {len(results)} signals → docs/signals.json")
